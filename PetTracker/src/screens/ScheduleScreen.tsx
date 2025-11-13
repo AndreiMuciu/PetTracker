@@ -19,6 +19,8 @@ import {
   scheduleWalkNotification,
   cancelNotification,
 } from "../services/notifications";
+import { getCurrentLocation } from "../services/location";
+import { getRainForecast } from "../services/weather";
 
 const DAYS_OF_WEEK = [
   { label: "D", value: 0, full: "Duminică" },
@@ -44,7 +46,49 @@ export default function ScheduleScreen() {
   useEffect(() => {
     loadPets();
     initNotifications();
+    checkRainAndNotify();
   }, []);
+
+  // Verifică prognoza meteo și trimite notificare dacă e ploaie azi sau dacă vremea e bună
+  const checkRainAndNotify = async () => {
+    try {
+      const coord = await getCurrentLocation();
+      if (!coord) return;
+      const forecast = await getRainForecast(coord);
+      let msg = "";
+      let title = "";
+      if (forecast.willRain && forecast.rainIntervals.length > 0) {
+        const city = forecast.city ? ` în ${forecast.city}` : "";
+        const intervals = forecast.rainIntervals
+          .map((int) => `${int.start.slice(11, 16)} - ${int.end.slice(11, 16)}`)
+          .join(", ");
+        msg = `Astăzi este anunțată ploaie${city} între orele: ${intervals}`;
+        title = "☔️ Avertizare meteo!";
+      } else {
+        msg = "Vremea este bună pentru plimbare în restul zilei!";
+        title = "🌤️ Vreme bună!";
+      }
+      // Notificare rapidă (imediată)
+      if (typeof window !== "undefined" && window.alert) {
+        alert(msg);
+      }
+      if (
+        typeof Notifications !== "undefined" &&
+        Notifications.scheduleNotificationAsync
+      ) {
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title,
+            body: msg,
+            sound: true,
+          },
+          trigger: null, // Imediat
+        });
+      }
+    } catch (e) {
+      // Ignoră erorile de rețea/meteo
+    }
+  };
 
   const initNotifications = async () => {
     await requestNotificationPermissions();
