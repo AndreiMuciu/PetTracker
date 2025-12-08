@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,10 @@ import {
   Modal,
   Switch,
   ScrollView,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Pet, WalkSchedule } from "../types";
 import { getPets, savePet } from "../services/storage";
@@ -44,10 +46,15 @@ export default function ScheduleScreen() {
   );
 
   useEffect(() => {
-    loadPets();
     initNotifications();
     checkRainAndNotify();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadPets();
+    }, [])
+  );
 
   // Verifică prognoza meteo și trimite notificare dacă e ploaie azi sau dacă vremea e bună
   const checkRainAndNotify = async () => {
@@ -290,10 +297,16 @@ export default function ScheduleScreen() {
   const renderPetSection = ({ item: pet }: { item: Pet }) => (
     <View style={styles.petSection}>
       <View style={styles.petHeader}>
-        <Text style={styles.petName}>
-          {pet.type === "dog" ? "🐕" : pet.type === "cat" ? "🐈" : "🐾"}{" "}
-          {pet.name}
-        </Text>
+        <View style={styles.petNameContainer}>
+          {pet.photo ? (
+            <Image source={{ uri: pet.photo }} style={styles.petPhoto} />
+          ) : (
+            <Text style={styles.petEmoji}>
+              {pet.type === "dog" ? "🐕" : pet.type === "cat" ? "🐈" : "🐾"}
+            </Text>
+          )}
+          <Text style={styles.petName}>{pet.name}</Text>
+        </View>
         <TouchableOpacity
           style={styles.addScheduleButton}
           onPress={() => handleAddSchedule(pet)}
@@ -492,9 +505,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+  petNameContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  petPhoto: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: "#007AFF",
+  },
+  petEmoji: {
+    fontSize: 32,
+  },
   petName: {
     fontSize: 20,
-    fontWeight: "bold",
+    fontWeight: "600",
     color: "#333",
   },
   addScheduleButton: {

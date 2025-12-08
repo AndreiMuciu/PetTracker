@@ -3,7 +3,8 @@ export interface Pet {
   name: string;
   type: "dog" | "cat" | "other";
   breed?: string;
-  photo?: string;
+  photo?: string; // URI de la cameră, dacă există
+  photoUri?: string; // Alias pentru compatibilitate
   walkSchedule: WalkSchedule[];
   createdAt: Date;
 }

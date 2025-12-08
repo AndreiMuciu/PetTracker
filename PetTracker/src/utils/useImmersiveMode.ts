@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Platform } from "react-native";
+import { Platform, AppState, AppStateStatus } from "react-native";
 import * as NavigationBar from "expo-navigation-bar";
 
 /**
@@ -7,6 +7,7 @@ import * as NavigationBar from "expo-navigation-bar";
  * - Ascunde Navigation Bar-ul (butoanele de jos)
  * - Bara apare doar când tragi de jos în sus (gesture)
  * - Funcționează doar pe Android
+ * - Re-ascunde bara când te întorci în aplicație
  */
 export const useImmersiveMode = (enabled: boolean = true) => {
   useEffect(() => {
@@ -31,10 +32,23 @@ export const useImmersiveMode = (enabled: boolean = true) => {
       }
     };
 
+    // Activează immersive mode inițial
     setupImmersiveMode();
+
+    // Listener pentru a re-ascunde bara când te întorci în aplicație
+    const subscription = AppState.addEventListener(
+      "change",
+      (nextAppState: AppStateStatus) => {
+        if (nextAppState === "active") {
+          // Re-aplică immersive mode când aplicația devine activă din nou
+          setupImmersiveMode();
+        }
+      }
+    );
 
     // Cleanup - restabilește Navigation Bar-ul când componenta se demontează
     return () => {
+      subscription.remove();
       if (Platform.OS === "android") {
         NavigationBar.setVisibilityAsync("visible").catch(console.error);
       }

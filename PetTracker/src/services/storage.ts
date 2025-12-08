@@ -107,9 +107,30 @@ export const saveWalk = async (walk: Walk): Promise<void> => {
       walks.push(walk);
     }
 
-    await AsyncStorage.setItem(WALKS_KEY, JSON.stringify(walks));
+    // Sortă plimbările după data (cele mai recente prima)
+    walks.sort((a, b) => {
+      const dateA = new Date(b.startTime).getTime();
+      const dateB = new Date(a.startTime).getTime();
+      return dateA - dateB;
+    });
+
+    // Păstrează doar ultimele 20 de plimbări
+    const limitedWalks = walks.slice(0, 20);
+
+    await AsyncStorage.setItem(WALKS_KEY, JSON.stringify(limitedWalks));
   } catch (error) {
     console.error("Error saving walk:", error);
+    throw error;
+  }
+};
+
+export const deleteWalk = async (walkId: string): Promise<void> => {
+  try {
+    const walks = await getWalks();
+    const filtered = walks.filter((w) => w.id !== walkId);
+    await AsyncStorage.setItem(WALKS_KEY, JSON.stringify(filtered));
+  } catch (error) {
+    console.error("Error deleting walk:", error);
     throw error;
   }
 };

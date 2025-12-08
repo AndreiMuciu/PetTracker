@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,12 @@ import {
   TextInput,
   Modal,
   ScrollView,
+  Image,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { Pet, WalkSchedule } from "../types";
 import { getPets, savePet, deletePet } from "../services/storage";
 import {
@@ -27,16 +31,37 @@ export default function PetsScreen() {
   const [name, setName] = useState("");
   const [petType, setPetType] = useState<"dog" | "cat" | "other">("dog");
   const [breed, setBreed] = useState("");
+  const [photoUri, setPhotoUri] = useState<string | undefined>(undefined);
   const { startWalk, activeWalk } = useWalk();
   const navigation = useNavigation();
 
-  useEffect(() => {
-    loadPets();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadPets();
+    }, [])
+  );
 
   const loadPets = async () => {
     const loadedPets = await getPets();
     setPets(loadedPets);
+  };
+
+  // Funcție helper pentru ștergerea fișierului fizic al pozei
+  const deletePhotoFile = async (photoUri: string | undefined) => {
+    if (!photoUri) return;
+
+    try {
+      // Verifică dacă e un URI local (nu un URI de rețea)
+      if (photoUri.startsWith("file://")) {
+        // Folosim noul API FileSystem.File pentru ștergere
+        const file = new FileSystem.File(photoUri);
+        await file.delete();
+        console.log("✅ Poză ștearsă din memorie:", photoUri);
+      }
+    } catch (error) {
+      console.error("⚠️ Eroare la ștergerea pozei:", error);
+      // Nu aruncăm eroarea - continuăm operația chiar dacă ștergerea eșuează
+    }
   };
 
   const handleAddPet = () => {
@@ -44,6 +69,7 @@ export default function PetsScreen() {
     setName("");
     setPetType("dog");
     setBreed("");
+    setPhotoUri(undefined);
     setModalVisible(true);
   };
 
@@ -52,7 +78,16 @@ export default function PetsScreen() {
     setName(pet.name);
     setPetType(pet.type);
     setBreed(pet.breed || "");
+    setPhotoUri(pet.photo);
     setModalVisible(true);
+  };
+
+  const handleCancelModal = async () => {
+    // Dacă utilizatorul a făcut o poză nouă dar nu a salvat-o, o ștergem
+    if (photoUri && (!editingPet || photoUri !== editingPet.photo)) {
+      await deletePhotoFile(photoUri);
+    }
+    setModalVisible(false);
   };
 
   const handleSavePet = async () => {
@@ -62,12 +97,19 @@ export default function PetsScreen() {
     }
 
     const newPet: Pet = editingPet
-      ? { ...editingPet, name, type: petType, breed: breed || undefined }
+      ? {
+          ...editingPet,
+          name,
+          type: petType,
+          breed: breed || undefined,
+          photo: photoUri,
+        }
       : {
           id: Date.now().toString(),
           name,
           type: petType,
           breed: breed || undefined,
+          photo: photoUri,
           walkSchedule: [],
           createdAt: new Date(),
         };
@@ -87,6 +129,11 @@ export default function PetsScreen() {
           text: "Șterge",
           style: "destructive",
           onPress: async () => {
+            // Șterge poza animalului din memorie
+            if (pet.photo) {
+              await deletePhotoFile(pet.photo);
+            }
+
             // Cancel all notifications for this pet
             for (const schedule of pet.walkSchedule) {
               if (schedule.notificationId) {
@@ -95,6 +142,61 @@ export default function PetsScreen() {
             }
             await deletePet(pet.id);
             await loadPets();
+          },
+        },
+      ]
+    );
+  };
+
+  const handleTakePhoto = async () => {
+    try {
+      // Cere permisiunea pentru cameră
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permisiune Necesară",
+          "Pentru a face poze animalelor tale, trebuie să acorzi permisiunea de a folosi camera."
+        );
+        return;
+      }
+
+      // Șterge poza veche înainte de a face una nouă
+      if (photoUri || (editingPet && editingPet.photo)) {
+        const oldPhotoUri = photoUri || editingPet?.photo;
+        await deletePhotoFile(oldPhotoUri);
+      }
+
+      // Deschide camera
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setPhotoUri(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error("Eroare la fotografiere:", error);
+      Alert.alert("Eroare", "Nu s-a putut face poza. Te rog încearcă din nou.");
+    }
+  };
+
+  const handleDeletePhoto = () => {
+    Alert.alert(
+      "Șterge Poza",
+      "Ești sigur că vrei să ștergi poza? Vei reveni la emoji-ul prestabilit.",
+      [
+        { text: "Anulează", style: "cancel" },
+        {
+          text: "Șterge",
+          style: "destructive",
+          onPress: async () => {
+            // Șterge fișierul fizic din memorie
+            const photoToDelete = photoUri || editingPet?.photo;
+            await deletePhotoFile(photoToDelete);
+            setPhotoUri(undefined);
           },
         },
       ]
@@ -143,7 +245,11 @@ export default function PetsScreen() {
         onPress={() => handleEditPet(item)}
         onLongPress={() => handleDeletePet(item)}
       >
-        <Text style={styles.petIcon}>{getPetIcon(item.type)}</Text>
+        {item.photo ? (
+          <Image source={{ uri: item.photo }} style={styles.petPhoto} />
+        ) : (
+          <Text style={styles.petIcon}>{getPetIcon(item.type)}</Text>
+        )}
         <View style={styles.petInfo}>
           <Text style={styles.petName}>{item.name}</Text>
           {item.breed && <Text style={styles.petBreed}>{item.breed}</Text>}
@@ -213,7 +319,7 @@ export default function PetsScreen() {
         animationType="slide"
         transparent={true}
         visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+        onRequestClose={handleCancelModal}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -221,7 +327,7 @@ export default function PetsScreen() {
               <Text style={styles.modalTitle}>
                 {editingPet ? "Editează Animal" : "Adaugă Animal"}
               </Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <TouchableOpacity onPress={handleCancelModal}>
                 <Ionicons name="close" size={28} color="#333" />
               </TouchableOpacity>
             </View>
@@ -301,12 +407,46 @@ export default function PetsScreen() {
                 placeholder="Ex: Labrador, Persan, etc."
                 placeholderTextColor="#999"
               />
+
+              <Text style={styles.label}>Poză Profil (opțional)</Text>
+              <View style={styles.photoSection}>
+                {photoUri ? (
+                  <View style={styles.photoPreviewContainer}>
+                    <Image
+                      source={{ uri: photoUri }}
+                      style={styles.photoPreview}
+                    />
+                    <TouchableOpacity
+                      style={styles.deletePhotoButton}
+                      onPress={handleDeletePhoto}
+                    >
+                      <Ionicons name="close-circle" size={32} color="#ff3b30" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.noPhotoContainer}>
+                    <Text style={styles.noPhotoEmoji}>
+                      {getPetIcon(petType)}
+                    </Text>
+                    <Text style={styles.noPhotoText}>Nicio poză</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.takePhotoButton}
+                  onPress={handleTakePhoto}
+                >
+                  <Ionicons name="camera" size={24} color="#fff" />
+                  <Text style={styles.takePhotoButtonText}>
+                    {photoUri ? "Schimbă Poza" : "Fă o Poză"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </ScrollView>
 
             <View style={styles.modalFooter}>
               <TouchableOpacity
                 style={styles.cancelButton}
-                onPress={() => setModalVisible(false)}
+                onPress={handleCancelModal}
               >
                 <Text style={styles.cancelButtonText}>Anulează</Text>
               </TouchableOpacity>
@@ -536,6 +676,76 @@ const styles = StyleSheet.create({
   startWalkButtonText: {
     color: "#fff",
     fontSize: 15,
+    fontWeight: "600",
+  },
+  petPhoto: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    marginRight: 16,
+    borderWidth: 2,
+    borderColor: "#007AFF",
+  },
+  photoSection: {
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  photoPreviewContainer: {
+    position: "relative",
+    marginBottom: 16,
+  },
+  photoPreview: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 3,
+    borderColor: "#007AFF",
+  },
+  deletePhotoButton: {
+    position: "absolute",
+    top: -8,
+    right: -8,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  noPhotoContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+    borderWidth: 2,
+    borderColor: "#e0e0e0",
+    borderStyle: "dashed",
+  },
+  noPhotoEmoji: {
+    fontSize: 48,
+    marginBottom: 4,
+  },
+  noPhotoText: {
+    fontSize: 12,
+    color: "#999",
+  },
+  takePhotoButton: {
+    backgroundColor: "#007AFF",
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  takePhotoButtonText: {
+    color: "#fff",
+    fontSize: 16,
     fontWeight: "600",
   },
 });

@@ -1,14 +1,17 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
+  Alert,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { Walk, Pet } from "../types";
-import { getWalks, getPets } from "../services/storage";
+import { getWalks, getPets, deleteWalk } from "../services/storage";
 import { formatDistance } from "../services/location";
 
 export default function HistoryScreen() {
@@ -16,9 +19,11 @@ export default function HistoryScreen() {
   const [pets, setPets] = useState<Pet[]>([]);
   const [selectedPetId, setSelectedPetId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const loadData = async () => {
     const [loadedWalks, loadedPets] = await Promise.all([
@@ -32,6 +37,36 @@ export default function HistoryScreen() {
       )
     );
     setPets(loadedPets);
+  };
+
+  const handleDeleteWalk = (walk: Walk) => {
+    const pet = getPetById(walk.petId);
+    const walkDate = formatDate(walk.startTime);
+
+    Alert.alert(
+      "Șterge Plimbare",
+      `Ești sigur că vrei să ștergi plimbarea cu ${
+        pet?.name || "animalul tău"
+      } din ${walkDate}?`,
+      [
+        { text: "Anulează", style: "cancel" },
+        {
+          text: "Șterge",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteWalk(walk.id);
+              await loadData();
+            } catch (error) {
+              Alert.alert(
+                "Eroare",
+                "Nu s-a putut șterge plimbarea. Te rog încearcă din nou."
+              );
+            }
+          },
+        },
+      ]
+    );
   };
 
   const getPetById = (petId: string) => {
@@ -94,19 +129,31 @@ export default function HistoryScreen() {
       <View style={styles.walkCard}>
         <View style={styles.walkHeader}>
           <View style={styles.walkPetInfo}>
-            <Text style={styles.walkPetIcon}>
-              {pet.type === "dog" ? "🐕" : pet.type === "cat" ? "🐈" : "🐾"}
-            </Text>
+            {pet.photo ? (
+              <Image source={{ uri: pet.photo }} style={styles.walkPetPhoto} />
+            ) : (
+              <Text style={styles.walkPetIcon}>
+                {pet.type === "dog" ? "🐕" : pet.type === "cat" ? "🐈" : "🐾"}
+              </Text>
+            )}
             <View>
               <Text style={styles.walkPetName}>{pet.name}</Text>
               <Text style={styles.walkDate}>{formatDate(item.startTime)}</Text>
             </View>
           </View>
-          {item.completed ? (
-            <Ionicons name="checkmark-circle" size={28} color="#34C759" />
-          ) : (
-            <Ionicons name="ellipse-outline" size={28} color="#FF9500" />
-          )}
+          <View style={styles.walkHeaderActions}>
+            {item.completed ? (
+              <Ionicons name="checkmark-circle" size={28} color="#34C759" />
+            ) : (
+              <Ionicons name="ellipse-outline" size={28} color="#FF9500" />
+            )}
+            <TouchableOpacity
+              onPress={() => handleDeleteWalk(item)}
+              style={styles.deleteWalkButton}
+            >
+              <Ionicons name="trash-outline" size={22} color="#ff3b30" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View style={styles.walkStats}>
@@ -309,10 +356,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
+  walkHeaderActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  deleteWalkButton: {
+    padding: 4,
+  },
   walkPetInfo: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+  },
+  walkPetPhoto: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: "#007AFF",
   },
   walkPetIcon: {
     fontSize: 32,
