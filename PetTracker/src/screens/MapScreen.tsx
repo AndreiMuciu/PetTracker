@@ -9,7 +9,7 @@ import {
   TextInput,
   FlatList,
 } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { Route, Coordinate } from "../types";
 import { getRoutes, saveRoute, deleteRoute } from "../services/storage";
@@ -32,7 +32,8 @@ export default function MapScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [routeName, setRouteName] = useState("");
   const [showRoutesList, setShowRoutesList] = useState(false);
-  const mapRef = useRef<MapView>(null);
+  const webViewRef = useRef<WebView>(null);
+  const [hasInitializedMap, setHasInitializedMap] = useState(false);
 
   // Walk tracking context
   const { activeWalk, isTracking, stopWalk, pauseWalk, resumeWalk } = useWalk();
@@ -42,42 +43,84 @@ export default function MapScreen() {
     loadRoutes();
   }, []);
 
+  useEffect(() => {
+    // Center map on first location, then just update
+    if (currentLocation && !hasInitializedMap) {
+      updateMap(true);
+      setHasInitializedMap(true);
+    } else {
+      updateMap();
+    }
+  }, [currentLocation, currentRoute, selectedRoute, activeWalk]);
+
+  const updateMap = (centerOnUser = false) => {
+    if (!webViewRef.current) return;
+
+    const data = {
+      type: "updateMap",
+      currentLocation,
+      currentRoute,
+      selectedRoute,
+      activeWalk: activeWalk ? { coordinates: activeWalk.coordinates } : null,
+      drawingMode,
+      centerOnUser,
+    };
+
+    // For iOS, postMessage expects a string
+    // The JavaScript side will parse it correctly
+    webViewRef.current.injectJavaScript(`
+      window.postMessage(${JSON.stringify(JSON.stringify(data))}, '*');
+      true;
+    `);
+  };
+
+  const centerOnUserLocation = () => {
+    if (currentLocation) {
+      updateMap(true);
+    }
+  };
+
+  const handleMessage = (event: any) => {
+    try {
+      const message = JSON.parse(event.nativeEvent.data);
+
+      if (message.type === "mapPress" && drawingMode) {
+        const coordinate: Coordinate = {
+          latitude: message.latitude,
+          longitude: message.longitude,
+        };
+        setCurrentRoute([...currentRoute, coordinate]);
+      }
+    } catch (error) {
+      console.error("Error parsing message from WebView:", error);
+    }
+  };
+
   const initializeLocation = async () => {
     const hasPermission = await requestLocationPermission();
     if (hasPermission) {
       const location = await getCurrentLocation();
       if (location) {
         setCurrentLocation(location);
-        // Centrează harta pe locația curentă
-        if (mapRef.current) {
-          mapRef.current.animateToRegion(
-            {
-              latitude: location.latitude,
-              longitude: location.longitude,
-              latitudeDelta: 0.01,
-              longitudeDelta: 0.01,
-            },
-            1000
-          );
-        }
       }
     }
   };
 
+  // Live location tracking
+  useEffect(() => {
+    const locationInterval = setInterval(async () => {
+      const location = await getCurrentLocation();
+      if (location) {
+        setCurrentLocation(location);
+      }
+    }, 5000); // Update every 5 seconds
+
+    return () => clearInterval(locationInterval);
+  }, []);
+
   const loadRoutes = async () => {
     const loadedRoutes = await getRoutes();
     setRoutes(loadedRoutes);
-  };
-
-  const handleMapPress = (e: any) => {
-    if (!drawingMode) return;
-
-    const coordinate: Coordinate = {
-      latitude: e.nativeEvent.coordinate.latitude,
-      longitude: e.nativeEvent.coordinate.longitude,
-    };
-
-    setCurrentRoute([...currentRoute, coordinate]);
   };
 
   const handleStartDrawing = () => {
@@ -146,11 +189,15 @@ export default function MapScreen() {
     setSelectedRoute(route);
     setShowRoutesList(false);
 
-    if (route.coordinates.length > 0 && mapRef.current) {
-      mapRef.current.fitToCoordinates(route.coordinates, {
-        edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-        animated: true,
-      });
+    if (route.coordinates.length > 0 && webViewRef.current) {
+      // Send command to fit bounds for selected route
+      const bounds = route.coordinates.map((c) => [c.latitude, c.longitude]);
+      webViewRef.current.postMessage(
+        JSON.stringify({
+          type: "fitBounds",
+          bounds: bounds,
+        })
+      );
     }
   };
 
@@ -213,83 +260,193 @@ export default function MapScreen() {
     </TouchableOpacity>
   );
 
+  const leafletHTML = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <style>
+        body { margin: 0; padding: 0; }
+        #map { width: 100%; height: 100vh; }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script>
+        const map = L.map('map', {
+          zoomControl: true,
+          attributionControl: false
+        }).setView([44.4268, 26.1025], 13);
+
+        // Voyager theme - dark but not too dark, nice balance
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+          maxZoom: 19,
+          attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+        }).addTo(map);
+
+        let currentRouteLayer = null;
+        let selectedRouteLayer = null;
+        let activeWalkLayer = null;
+        let userLocationMarker = null;
+
+        // Handle map clicks
+        map.on('click', function(e) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'mapPress',
+            latitude: e.latlng.lat,
+            longitude: e.latlng.lng
+          }));
+        });
+
+        // Listen for messages from React Native
+        function handleMessage(event) {
+          let data;
+          try {
+            data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+          } catch (e) {
+            console.log('Failed to parse message:', e);
+            return;
+          }
+          
+          if (data.type === 'fitBounds' && data.bounds && data.bounds.length > 0) {
+            map.fitBounds(data.bounds, { padding: [50, 50] });
+          }
+          else if (data.type === 'updateMap') {
+            // Clear existing layers
+            if (currentRouteLayer) {
+              map.removeLayer(currentRouteLayer);
+              currentRouteLayer = null;
+            }
+            if (selectedRouteLayer) {
+              map.removeLayer(selectedRouteLayer);
+              selectedRouteLayer = null;
+            }
+            if (activeWalkLayer) {
+              map.removeLayer(activeWalkLayer);
+              activeWalkLayer = null;
+            }
+
+            // Draw current route
+            if (data.currentRoute && data.currentRoute.length > 0) {
+              const latlngs = data.currentRoute.map(c => [c.latitude, c.longitude]);
+              currentRouteLayer = L.featureGroup();
+              
+              L.polyline(latlngs, {
+                color: '#00D9FF',
+                weight: 5,
+                opacity: 0.9
+              }).addTo(currentRouteLayer);
+              
+              latlngs.forEach(latlng => {
+                L.circleMarker(latlng, {
+                  radius: 7,
+                  fillColor: '#00D9FF',
+                  color: '#1a1a1a',
+                  weight: 3,
+                  fillOpacity: 1
+                }).addTo(currentRouteLayer);
+              });
+              
+              currentRouteLayer.addTo(map);
+            }
+
+            // Draw selected route
+            if (data.selectedRoute && data.selectedRoute.coordinates) {
+              const latlngs = data.selectedRoute.coordinates.map(c => [c.latitude, c.longitude]);
+              selectedRouteLayer = L.featureGroup();
+              
+              L.polyline(latlngs, {
+                color: '#30D158',
+                weight: 5,
+                opacity: 0.9
+              }).addTo(selectedRouteLayer);
+              
+              latlngs.forEach(latlng => {
+                L.circleMarker(latlng, {
+                  radius: 7,
+                  fillColor: '#30D158',
+                  color: '#1a1a1a',
+                  weight: 3,
+                  fillOpacity: 1
+                }).addTo(selectedRouteLayer);
+              });
+              
+              selectedRouteLayer.addTo(map);
+            }
+
+            // Draw active walk
+            if (data.activeWalk && data.activeWalk.coordinates && data.activeWalk.coordinates.length > 0) {
+              const latlngs = data.activeWalk.coordinates.map(c => [c.latitude, c.longitude]);
+              activeWalkLayer = L.featureGroup();
+              
+              L.polyline(latlngs, {
+                color: '#FF453A',
+                weight: 6,
+                opacity: 0.95
+              }).addTo(activeWalkLayer);
+              
+              const lastPoint = latlngs[latlngs.length - 1];
+              L.marker(lastPoint, {
+                icon: L.divIcon({
+                  className: 'custom-marker',
+                  html: '<div style="background-color: #FF453A; width: 24px; height: 24px; border-radius: 50%; border: 4px solid #1a1a1a; box-shadow: 0 0 20px rgba(255, 69, 58, 0.8);"></div>',
+                  iconSize: [24, 24]
+                })
+              }).addTo(activeWalkLayer);
+              
+              activeWalkLayer.addTo(map);
+            }
+
+            // Update user location marker
+            if (data.currentLocation) {
+              if (userLocationMarker) {
+                map.removeLayer(userLocationMarker);
+              }
+              userLocationMarker = L.marker([data.currentLocation.latitude, data.currentLocation.longitude], {
+                icon: L.divIcon({
+                  className: 'user-location',
+                  html: '<div style="background-color: #00D9FF; width: 16px; height: 16px; border-radius: 50%; border: 4px solid #1a1a1a; box-shadow: 0 0 15px rgba(0, 217, 255, 0.7);"></div>',
+                  iconSize: [16, 16]
+                })
+              }).addTo(map);
+              
+              // Center map on user location if requested or first time
+              if (data.centerOnUser) {
+                map.setView([data.currentLocation.latitude, data.currentLocation.longitude], 15);
+              }
+            }
+          }
+        }
+        
+        // Support both Android and iOS
+        document.addEventListener('message', handleMessage);
+        window.addEventListener('message', handleMessage);
+      </script>
+    </body>
+    </html>
+  `;
+
   return (
     <View style={styles.container}>
-      <MapView
-        ref={mapRef}
+      <WebView
+        ref={webViewRef}
         style={styles.map}
-        provider={PROVIDER_GOOGLE}
-        initialRegion={
-          currentLocation
-            ? {
-                latitude: currentLocation.latitude,
-                longitude: currentLocation.longitude,
-                latitudeDelta: 0.01,
-                longitudeDelta: 0.01,
-              }
-            : {
-                latitude: 44.4268, // București default
-                longitude: 26.1025,
-                latitudeDelta: 0.1,
-                longitudeDelta: 0.1,
-              }
-        }
-        onPress={handleMapPress}
-        showsUserLocation
-        showsMyLocationButton
+        source={{ html: leafletHTML }}
+        onMessage={handleMessage}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        startInLoadingState={true}
+      />
+
+      {/* My Location Button */}
+      <TouchableOpacity
+        style={styles.myLocationButton}
+        onPress={centerOnUserLocation}
       >
-        {/* Current drawing route */}
-        {currentRoute.length > 0 && (
-          <>
-            <Polyline
-              coordinates={currentRoute}
-              strokeColor="#007AFF"
-              strokeWidth={4}
-            />
-            {currentRoute.map((coord, index) => (
-              <Marker key={`current-${index}`} coordinate={coord}>
-                <View style={styles.markerDot} />
-              </Marker>
-            ))}
-          </>
-        )}
-
-        {/* Selected saved route */}
-        {selectedRoute && (
-          <>
-            <Polyline
-              coordinates={selectedRoute.coordinates}
-              strokeColor="#34C759"
-              strokeWidth={4}
-            />
-            {selectedRoute.coordinates.map((coord, index) => (
-              <Marker
-                key={`selected-${index}`}
-                coordinate={coord}
-                pinColor="#34C759"
-              />
-            ))}
-          </>
-        )}
-
-        {/* Active walk tracking */}
-        {activeWalk && activeWalk.coordinates.length > 0 && (
-          <>
-            <Polyline
-              coordinates={activeWalk.coordinates}
-              strokeColor="#FF3B30"
-              strokeWidth={5}
-            />
-            <Marker
-              coordinate={
-                activeWalk.coordinates[activeWalk.coordinates.length - 1]
-              }
-              title="Locația curentă"
-              pinColor="#FF3B30"
-            />
-          </>
-        )}
-      </MapView>
+        <Ionicons name="locate" size={24} color="#007AFF" />
+      </TouchableOpacity>
 
       {/* Active Walk Tracker */}
       {activeWalk && (
@@ -490,13 +647,18 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
-  markerDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#007AFF",
-    borderWidth: 2,
-    borderColor: "#fff",
+  myLocationButton: {
+    position: "absolute",
+    top: 60,
+    right: 16,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   controlPanel: {
     position: "absolute",

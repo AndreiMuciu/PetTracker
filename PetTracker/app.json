@@ -34,13 +34,11 @@
         "ACCESS_COARSE_LOCATION",
         "FOREGROUND_SERVICE",
         "POST_NOTIFICATIONS",
-        "CAMERA"
+        "CAMERA",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_API_KEY"
-        }
-      }
+      "package": "com.muciu.PetTracker"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -69,6 +67,17 @@
           "backgroundColor": "#00000000"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "expo-navigation-bar": {
+        "position": "relative",
+        "visibility": "hidden",
+        "behavior": "overlay-swipe",
+        "backgroundColor": "#00000000"
+      },
+      "eas": {
+        "projectId": "b0a6d53d-b5b1-4338-95c0-152cab744de2"
+      }
+    }
   }
 }
