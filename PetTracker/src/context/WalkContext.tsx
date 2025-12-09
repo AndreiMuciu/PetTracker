@@ -85,6 +85,20 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
           setActiveWalk((prev) => {
             if (!prev) return null;
 
+            // Verifică dacă coordonata nouă este diferită de ultima
+            const lastCoord = prev.coordinates[prev.coordinates.length - 1];
+
+            // Calculează distanța față de ultimul punct
+            const distanceFromLast = getDistanceBetweenPoints(
+              lastCoord,
+              newCoordinate
+            );
+
+            // Adaugă doar dacă s-a mișcat mai mult de 5 metri (pentru a evita noise GPS)
+            if (distanceFromLast < 5) {
+              return prev; // Nu adăuga coordonata, returnează starea anterioară
+            }
+
             const updatedCoordinates = [...prev.coordinates, newCoordinate];
             const updatedDistance = calculateDistance(updatedCoordinates);
 
@@ -174,6 +188,20 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
           setActiveWalk((prev) => {
             if (!prev) return null;
 
+            // Verifică dacă coordonata nouă este diferită de ultima
+            const lastCoord = prev.coordinates[prev.coordinates.length - 1];
+
+            // Calculează distanța față de ultimul punct
+            const distanceFromLast = getDistanceBetweenPoints(
+              lastCoord,
+              newCoordinate
+            );
+
+            // Adaugă doar dacă s-a mișcat mai mult de 5 metri (pentru a evita noise GPS)
+            if (distanceFromLast < 5) {
+              return prev; // Nu adăuga coordonata, returnează starea anterioară
+            }
+
             const updatedCoordinates = [...prev.coordinates, newCoordinate];
             const updatedDistance = calculateDistance(updatedCoordinates);
 
@@ -192,6 +220,25 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (error) {
       console.error("Eroare la reluarea plimbării:", error);
     }
+  };
+
+  // Helper function pentru distanță între 2 puncte
+  const getDistanceBetweenPoints = (
+    from: Coordinate,
+    to: Coordinate
+  ): number => {
+    const R = 6371e3; // Earth's radius in meters
+    const φ1 = (from.latitude * Math.PI) / 180;
+    const φ2 = (to.latitude * Math.PI) / 180;
+    const Δφ = ((to.latitude - from.latitude) * Math.PI) / 180;
+    const Δλ = ((to.longitude - from.longitude) * Math.PI) / 180;
+
+    const a =
+      Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+      Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c;
   };
 
   return (
