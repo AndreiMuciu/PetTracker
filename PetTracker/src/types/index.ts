@@ -48,3 +48,39 @@ export interface NotificationSettings {
   soundEnabled: boolean;
   vibrationEnabled: boolean;
 }
+
+// Feeding Schedule - Program pentru hrănire
+export interface FeedingSchedule {
+  id: string;
+  petId: string;
+  time: string; // Format: "HH:mm"
+  daysOfWeek: number[]; // 0-6 (Sunday-Saturday)
+  enabled: boolean;
+  portionSize: number; // Grame per porție
+  foodType?: string; // Tipul mâncării (ex: "uscată", "umedă")
+  notificationId?: string;
+}
+
+// Food Inventory - Inventar mâncare
+export interface FoodInventory {
+  id: string;
+  petId: string;
+  foodName: string; // Numele mâncării
+  totalAmount: number; // Cantitatea totală în grame
+  remainingAmount: number; // Cantitatea rămasă în grame
+  portionSize: number; // Grame per porție
+  lowStockThreshold: number; // Prag pentru notificare stoc redus (în grame)
+  unit: "g" | "kg"; // Unitatea de măsură afișată
+  createdAt: Date;
+  lastFedAt?: Date; // Ultima hrănire
+}
+
+// Feeding Log - Istoric hrăniri
+export interface FeedingLog {
+  id: string;
+  petId: string;
+  inventoryId: string;
+  portionSize: number;
+  fedAt: Date;
+  notes?: string;
+}

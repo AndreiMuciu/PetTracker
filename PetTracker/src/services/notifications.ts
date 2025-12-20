@@ -1,6 +1,6 @@
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import { Pet, WalkSchedule } from "../types";
+import { Pet, WalkSchedule, FeedingSchedule } from "../types";
 
 // Verifică dacă rulează în Expo Go
 const isExpoGo = Constants.appOwnership === "expo";
@@ -75,29 +75,43 @@ export const scheduleWalkNotification = async (
 
   try {
     const [hours, minutes] = schedule.time.split(":").map(Number);
+    const notificationIds: string[] = [];
 
-    const trigger: any = {
-      type: (Notifications as any).SchedulableTriggerInputTypes.CALENDAR,
-      hour: hours,
-      minute: minutes,
-      repeats: true,
-    };
+    // Programăm o notificare separată pentru fiecare zi a săptămânii selectată
+    for (const dayOfWeek of schedule.daysOfWeek) {
+      // Convertim de la JavaScript (0=Duminică) la expo-notifications (1=Duminică pe iOS, 1=Luni pe Android)
+      // expo-notifications folosește 1-7 unde 1=Duminică
+      const weekday = dayOfWeek === 0 ? 1 : dayOfWeek + 1;
 
-    const notificationId = await Notifications.scheduleNotificationAsync({
-      content: {
-        title: `🐾 Timpul pentru plimbare!`,
-        body: `Nu uita să te plimbi cu ${pet.name}!`,
-        data: { petId: pet.id, scheduleId: schedule.id },
-        sound: true,
-      },
-      trigger,
-    });
+      const trigger: any = {
+        type: (Notifications as any).SchedulableTriggerInputTypes.WEEKLY,
+        weekday: weekday,
+        hour: hours,
+        minute: minutes,
+      };
 
-    console.log(
-      `✅ Notificare programată pentru ${pet.name} la ${schedule.time}`
-    );
-    return notificationId;
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `🐾 Timpul pentru plimbare!`,
+          body: `Nu uita să te plimbi cu ${pet.name}!`,
+          data: { petId: pet.id, scheduleId: schedule.id },
+          sound: true,
+          priority: "high",
+          ...(Platform.OS === "android" && { channelId: "walk-reminders" }),
+        },
+        trigger,
+      });
+
+      notificationIds.push(notificationId);
+      console.log(
+        `✅ Notificare programată pentru ${pet.name} - zi ${dayOfWeek} la ${schedule.time}`
+      );
+    }
+
+    // Returnăm ID-urile separate cu virgulă pentru a le putea anula mai târziu
+    return notificationIds.join(",");
   } catch (error) {
+    console.error("Eroare la programarea notificării:", error);
     // Fallback pentru erori
     return `expo-go-${pet.id}-${schedule.id}`;
   }
@@ -112,7 +126,13 @@ export const cancelNotification = async (
   }
 
   try {
-    await Notifications.cancelScheduledNotificationAsync(notificationId);
+    // Suport pentru mai multe ID-uri separate cu virgulă
+    const ids = notificationId.split(",");
+    for (const id of ids) {
+      if (id.trim()) {
+        await Notifications.cancelScheduledNotificationAsync(id.trim());
+      }
+    }
   } catch (error) {
     console.error("Error canceling notification:", error);
   }
@@ -141,4 +161,119 @@ export const getAllScheduledNotifications = async () => {
     console.error("Error getting scheduled notifications:", error);
     return [];
   }
+};
+
+// Trimite o notificare imediată
+export const sendImmediateNotification = async (
+  title: string,
+  body: string
+): Promise<void> => {
+  if (isExpoGo) {
+    console.log(`📱 [Expo Go] Notificare: ${title} - ${body}`);
+    return;
+  }
+
+  try {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+        sound: true,
+        priority: "high",
+        ...(Platform.OS === "android" && { channelId: "walk-reminders" }),
+      },
+      trigger: null, // Imediat
+    });
+  } catch (error) {
+    console.error("Error sending immediate notification:", error);
+  }
+};
+
+// ============ Feeding Notifications ============
+
+export const scheduleFeedingNotification = async (
+  pet: Pet,
+  schedule: FeedingSchedule
+): Promise<string | null> => {
+  // În Expo Go, skip notification scheduling
+  if (isExpoGo) {
+    return `expo-go-feeding-${pet.id}-${schedule.id}`;
+  }
+
+  try {
+    const [hours, minutes] = schedule.time.split(":").map(Number);
+    const notificationIds: string[] = [];
+
+    // Creează canal pentru hrănire pe Android
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("feeding-reminders", {
+        name: "Feeding Reminders",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#FF9500",
+      });
+    }
+
+    for (const dayOfWeek of schedule.daysOfWeek) {
+      const weekday = dayOfWeek === 0 ? 1 : dayOfWeek + 1;
+
+      const trigger: any = {
+        type: (Notifications as any).SchedulableTriggerInputTypes.WEEKLY,
+        weekday: weekday,
+        hour: hours,
+        minute: minutes,
+      };
+
+      const portionText = schedule.portionSize
+        ? ` (${schedule.portionSize}g)`
+        : "";
+      const foodText = schedule.foodType ? ` - ${schedule.foodType}` : "";
+
+      const notificationId = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `🍽️ Ora mesei pentru ${pet.name}!`,
+          body: `Este timpul să hrănești pe ${pet.name}${portionText}${foodText}`,
+          data: { petId: pet.id, scheduleId: schedule.id, type: "feeding" },
+          sound: true,
+          priority: "high",
+          ...(Platform.OS === "android" && { channelId: "feeding-reminders" }),
+        },
+        trigger,
+      });
+
+      notificationIds.push(notificationId);
+      console.log(
+        `✅ Notificare hrănire programată pentru ${pet.name} - zi ${dayOfWeek} la ${schedule.time}`
+      );
+    }
+
+    return notificationIds.join(",");
+  } catch (error) {
+    console.error("Eroare la programarea notificării de hrănire:", error);
+    return `expo-go-feeding-${pet.id}-${schedule.id}`;
+  }
+};
+
+// Notificare stoc redus de mâncare
+export const sendLowStockNotification = async (
+  petName: string,
+  foodName: string,
+  remainingAmount: number,
+  unit: string
+): Promise<void> => {
+  const title = `⚠️ Stoc redus de mâncare!`;
+  const body = `Mai ai doar ${remainingAmount}${unit} de "${foodName}" pentru ${petName}. E timpul să cumperi mai mult!`;
+
+  await sendImmediateNotification(title, body);
+};
+
+// Notificare mâncare terminată
+export const sendOutOfStockNotification = async (
+  petName: string,
+  foodName: string
+): Promise<void> => {
+  const title = `🚨 Mâncarea s-a terminat!`;
+  const body = `"${foodName}" pentru ${petName} s-a terminat. Trebuie să cumperi mâncare!`;
+
+  await sendImmediateNotification(title, body);
 };

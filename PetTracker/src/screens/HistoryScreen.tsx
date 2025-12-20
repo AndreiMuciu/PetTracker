@@ -110,9 +110,27 @@ export default function HistoryScreen() {
   const formatDuration = (startTime: Date, endTime?: Date) => {
     if (!endTime) return "În desfășurare";
 
+    console.log("🕐 Debug formatDuration:");
+    console.log("  startTime raw:", startTime, typeof startTime);
+    console.log("  endTime raw:", endTime, typeof endTime);
+
     const start = new Date(startTime).getTime();
     const end = new Date(endTime).getTime();
-    const minutes = Math.floor((end - start) / 60000);
+
+    console.log("  start timestamp:", start);
+    console.log("  end timestamp:", end);
+    console.log("  diferență ms:", end - start);
+
+    const totalSeconds = Math.floor((end - start) / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+
+    console.log("  totalSeconds:", totalSeconds);
+    console.log("  minutes:", minutes);
+
+    if (minutes === 0) {
+      // Afișează secundele dacă durata e sub 1 minut
+      return `${totalSeconds} sec`;
+    }
 
     if (minutes < 60) return `${minutes} min`;
 

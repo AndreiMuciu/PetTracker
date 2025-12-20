@@ -20,6 +20,7 @@ import {
   requestNotificationPermissions,
   scheduleWalkNotification,
   cancelNotification,
+  sendImmediateNotification,
 } from "../services/notifications";
 import { getCurrentLocation } from "../services/location";
 import { getRainForecast } from "../services/weather";
@@ -79,19 +80,7 @@ export default function ScheduleScreen() {
       if (typeof window !== "undefined" && window.alert) {
         alert(msg);
       }
-      if (
-        typeof Notifications !== "undefined" &&
-        Notifications.scheduleNotificationAsync
-      ) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title,
-            body: msg,
-            sound: true,
-          },
-          trigger: null, // Imediat
-        });
-      }
+      await sendImmediateNotification(title, msg);
     } catch (e) {
       // Ignoră erorile de rețea/meteo
     }
@@ -331,14 +320,6 @@ export default function ScheduleScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Programe Plimbări</Text>
-      </View>
-
-      {/* Warning pentru Expo Go */}
-      <View style={styles.warningBanner}>
-        <Ionicons name="information-circle" size={20} color="#FF9500" />
-        <Text style={styles.warningText}>
-          În Expo Go, reminder-urile apar în aplicație (nu ca notificări native)
-        </Text>
       </View>
 
       {pets.length === 0 ? (

@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import * as Location from "expo-location";
 import { Pet, Walk, Coordinate } from "../types";
-import { getWalks, saveWalk } from "../services/storage";
-import { calculateDistance } from "../services/location";
+import { saveWalk } from "../services/storage";
 
 interface ActiveWalk {
   pet: Pet;
@@ -73,8 +72,8 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 5000, // Update la fiecare 5 secunde
-          distanceInterval: 10, // Sau la fiecare 10 metri
+          timeInterval: 3000, // Update la fiecare 3 secunde
+          distanceInterval: 1, // Sau la fiecare 1 metru
         },
         (newLocation) => {
           const newCoordinate: Coordinate = {
@@ -85,27 +84,17 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
           setActiveWalk((prev) => {
             if (!prev) return null;
 
-            // Verifică dacă coordonata nouă este diferită de ultima
             const lastCoord = prev.coordinates[prev.coordinates.length - 1];
-
-            // Calculează distanța față de ultimul punct
-            const distanceFromLast = getDistanceBetweenPoints(
+            // Calculează distanța incrementală de la ultimul punct
+            const incrementalDistance = getDistanceBetweenPoints(
               lastCoord,
               newCoordinate
             );
 
-            // Adaugă doar dacă s-a mișcat mai mult de 5 metri (pentru a evita noise GPS)
-            if (distanceFromLast < 5) {
-              return prev; // Nu adăuga coordonata, returnează starea anterioară
-            }
-
-            const updatedCoordinates = [...prev.coordinates, newCoordinate];
-            const updatedDistance = calculateDistance(updatedCoordinates);
-
             return {
               ...prev,
-              coordinates: updatedCoordinates,
-              distance: updatedDistance,
+              coordinates: [...prev.coordinates, newCoordinate],
+              distance: prev.distance + incrementalDistance,
             };
           });
         }
@@ -132,6 +121,14 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
       const endTime = new Date();
       const durationMs = endTime.getTime() - activeWalk.startTime.getTime();
       const durationMinutes = Math.round(durationMs / 60000);
+
+      console.log("🕐 Debug salvare plimbare:");
+      console.log("  startTime:", activeWalk.startTime);
+      console.log("  startTime.getTime():", activeWalk.startTime.getTime());
+      console.log("  endTime:", endTime);
+      console.log("  endTime.getTime():", endTime.getTime());
+      console.log("  durationMs:", durationMs);
+      console.log("  durationMinutes:", durationMinutes);
 
       // Salvează walk-ul în istoric
       const walk: Walk = {
@@ -173,11 +170,33 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
     if (!activeWalk) return;
 
     try {
+      // La reluare, obținem poziția curentă și o setăm ca punct de start pentru continuare
+      // Astfel distanța parcursă în timpul pauzei NU se adaugă
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+
+      const resumeCoordinate: Coordinate = {
+        latitude: currentLocation.coords.latitude,
+        longitude: currentLocation.coords.longitude,
+      };
+
+      // Adăugăm punctul de reluare fără a calcula distanța față de ultimul punct
+      // (pentru că am fost pe pauză și nu vrem să numărăm "saltul")
+      setActiveWalk((prev) => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          coordinates: [...prev.coordinates, resumeCoordinate],
+          // Distanța rămâne aceeași - nu adăugăm distanța din pauză
+        };
+      });
+
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
-          timeInterval: 5000,
-          distanceInterval: 10,
+          timeInterval: 3000,
+          distanceInterval: 1,
         },
         (newLocation) => {
           const newCoordinate: Coordinate = {
@@ -188,27 +207,17 @@ export const WalkProvider: React.FC<{ children: React.ReactNode }> = ({
           setActiveWalk((prev) => {
             if (!prev) return null;
 
-            // Verifică dacă coordonata nouă este diferită de ultima
             const lastCoord = prev.coordinates[prev.coordinates.length - 1];
-
-            // Calculează distanța față de ultimul punct
-            const distanceFromLast = getDistanceBetweenPoints(
+            // Calculează distanța incrementală de la ultimul punct
+            const incrementalDistance = getDistanceBetweenPoints(
               lastCoord,
               newCoordinate
             );
 
-            // Adaugă doar dacă s-a mișcat mai mult de 5 metri (pentru a evita noise GPS)
-            if (distanceFromLast < 5) {
-              return prev; // Nu adăuga coordonata, returnează starea anterioară
-            }
-
-            const updatedCoordinates = [...prev.coordinates, newCoordinate];
-            const updatedDistance = calculateDistance(updatedCoordinates);
-
             return {
               ...prev,
-              coordinates: updatedCoordinates,
-              distance: updatedDistance,
+              coordinates: [...prev.coordinates, newCoordinate],
+              distance: prev.distance + incrementalDistance,
             };
           });
         }
