@@ -82,6 +82,19 @@ export default function FeedingScreen() {
   const [lowStockThreshold, setLowStockThreshold] = useState("500");
   const [selectedUnit, setSelectedUnit] = useState<"g" | "kg">("g");
 
+  // Helper: pentru câini și pisici, inventarul e comun per tip; pentru other, e per animal
+  const getInventoryKey = (pet: Pet): string => {
+    if (pet.type === "dog") return "__dogs__";
+    if (pet.type === "cat") return "__cats__";
+    return pet.id; // pentru "other", rămâne per animal
+  };
+
+  const getInventoryKeyLabel = (pet: Pet): string => {
+    if (pet.type === "dog") return "Toți câinii";
+    if (pet.type === "cat") return "Toate pisicile";
+    return pet.name;
+  };
+
   useFocusEffect(
     useCallback(() => {
       loadData();
@@ -100,12 +113,71 @@ export default function FeedingScreen() {
       const schedules = await getFeedingSchedulesByPet(pet.id);
       schedulesMap.set(pet.id, schedules);
 
-      const inventory = await getFoodInventoryByPet(pet.id);
-      inventoryMap.set(pet.id, inventory);
+      // Pentru inventar, folosim cheia bazată pe tip
+      const inventoryKey = getInventoryKey(pet);
+      if (!inventoryMap.has(inventoryKey)) {
+        const inventory = await getFoodInventoryByPet(inventoryKey);
+        inventoryMap.set(inventoryKey, inventory);
+      }
     }
 
     setFeedingSchedules(schedulesMap);
     setFoodInventories(inventoryMap);
+  };
+
+  // Helper pentru a obține inventarul pentru un animal (bazat pe tipul lui)
+  const getInventoryForPet = (pet: Pet): FoodInventory[] => {
+    const inventoryKey = getInventoryKey(pet);
+    return foodInventories.get(inventoryKey) || [];
+  };
+
+  // Creez grupuri pentru inventar (câini, pisici, animale individuale)
+  const getInventoryGroups = () => {
+    const groups: {
+      key: string;
+      label: string;
+      emoji: string;
+      inventories: FoodInventory[];
+      representativePet: Pet | null;
+    }[] = [];
+
+    const hasDogs = pets.some((p) => p.type === "dog");
+    const hasCats = pets.some((p) => p.type === "cat");
+    const otherPets = pets.filter((p) => p.type === "other");
+
+    if (hasDogs) {
+      const dogPet = pets.find((p) => p.type === "dog")!;
+      groups.push({
+        key: "__dogs__",
+        label: "Toți câinii",
+        emoji: "🐕",
+        inventories: foodInventories.get("__dogs__") || [],
+        representativePet: dogPet,
+      });
+    }
+
+    if (hasCats) {
+      const catPet = pets.find((p) => p.type === "cat")!;
+      groups.push({
+        key: "__cats__",
+        label: "Toate pisicile",
+        emoji: "🐈",
+        inventories: foodInventories.get("__cats__") || [],
+        representativePet: catPet,
+      });
+    }
+
+    for (const pet of otherPets) {
+      groups.push({
+        key: pet.id,
+        label: pet.name,
+        emoji: "🐾",
+        inventories: foodInventories.get(pet.id) || [],
+        representativePet: pet,
+      });
+    }
+
+    return groups;
   };
 
   // ============ Schedule Functions ============
@@ -299,9 +371,10 @@ export default function FeedingScreen() {
 
       await saveFoodInventory(updatedInventory);
     } else {
+      const inventoryKey = getInventoryKey(selectedPetForInventory);
       const newInventory: FoodInventory = {
         id: Date.now().toString(),
-        petId: selectedPetForInventory.id,
+        petId: inventoryKey, // folosim cheia inventarului, nu petId
         foodName: foodName.trim(),
         totalAmount: totalInGrams,
         remainingAmount: totalInGrams,
@@ -453,17 +526,19 @@ export default function FeedingScreen() {
   };
 
   const getLinkedInventory = (
-    schedule: FeedingSchedule
+    schedule: FeedingSchedule,
+    pet: Pet
   ): FoodInventory | undefined => {
     if (!schedule.inventoryId) return undefined;
-    const petInventories = foodInventories.get(schedule.petId) || [];
+    const inventoryKey = getInventoryKey(pet);
+    const petInventories = foodInventories.get(inventoryKey) || [];
     return petInventories.find((inv) => inv.id === schedule.inventoryId);
   };
 
   // ============ Render Functions ============
 
   const renderScheduleItem = (pet: Pet, schedule: FeedingSchedule) => {
-    const linkedInventory = getLinkedInventory(schedule);
+    const linkedInventory = getLinkedInventory(schedule, pet);
 
     return (
       <View key={schedule.id} style={styles.scheduleCard}>
@@ -607,9 +682,9 @@ export default function FeedingScreen() {
     );
   };
 
-  const renderPetSection = ({ item: pet }: { item: Pet }) => {
+  // Render pentru secțiunea unui animal individual (pentru schedules)
+  const renderPetScheduleSection = ({ item: pet }: { item: Pet }) => {
     const schedules = feedingSchedules.get(pet.id) || [];
-    const inventories = foodInventories.get(pet.id) || [];
 
     return (
       <View style={styles.petSection}>
@@ -626,34 +701,58 @@ export default function FeedingScreen() {
           </View>
           <TouchableOpacity
             style={styles.addButton}
-            onPress={() =>
-              activeTab === "schedules"
-                ? handleAddSchedule(pet)
-                : handleAddInventory(pet)
-            }
+            onPress={() => handleAddSchedule(pet)}
           >
             <Ionicons name="add" size={24} color="#FF9500" />
           </TouchableOpacity>
         </View>
 
-        {activeTab === "schedules" ? (
-          schedules.length === 0 ? (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptyText}>
-                Nu există programe de hrănire
-              </Text>
-            </View>
-          ) : (
-            schedules.map((schedule) => renderScheduleItem(pet, schedule))
-          )
-        ) : inventories.length === 0 ? (
+        {schedules.length === 0 ? (
+          <View style={styles.emptySection}>
+            <Text style={styles.emptyText}>Nu există programe de hrănire</Text>
+          </View>
+        ) : (
+          schedules.map((schedule) => renderScheduleItem(pet, schedule))
+        )}
+      </View>
+    );
+  };
+
+  // Render pentru secțiunea de inventar grupat
+  const renderInventoryGroupSection = (group: {
+    key: string;
+    label: string;
+    emoji: string;
+    inventories: FoodInventory[];
+    representativePet: Pet | null;
+  }) => {
+    if (!group.representativePet) return null;
+
+    return (
+      <View key={group.key} style={styles.petSection}>
+        <View style={styles.petHeader}>
+          <View style={styles.petNameContainer}>
+            <Text style={styles.petEmoji}>{group.emoji}</Text>
+            <Text style={styles.petName}>{group.label}</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => handleAddInventory(group.representativePet!)}
+          >
+            <Ionicons name="add" size={24} color="#FF9500" />
+          </TouchableOpacity>
+        </View>
+
+        {group.inventories.length === 0 ? (
           <View style={styles.emptySection}>
             <Text style={styles.emptyText}>
               Nu ai adăugat mâncare în inventar
             </Text>
           </View>
         ) : (
-          inventories.map((inventory) => renderInventoryItem(pet, inventory))
+          group.inventories.map((inventory) =>
+            renderInventoryItem(group.representativePet!, inventory)
+          )
         )}
       </View>
     );
@@ -713,13 +812,19 @@ export default function FeedingScreen() {
             Adaugă un animal mai întâi pentru a programa hrănirea
           </Text>
         </View>
-      ) : (
+      ) : activeTab === "schedules" ? (
         <FlatList
           data={pets}
-          renderItem={renderPetSection}
+          renderItem={renderPetScheduleSection}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
         />
+      ) : (
+        <ScrollView contentContainerStyle={styles.listContent}>
+          {getInventoryGroups().map((group) =>
+            renderInventoryGroupSection(group)
+          )}
+        </ScrollView>
       )}
 
       {/* Schedule Modal */}
@@ -829,54 +934,51 @@ export default function FeedingScreen() {
                   </Text>
                 </TouchableOpacity>
                 {selectedPetForSchedule &&
-                  (foodInventories.get(selectedPetForSchedule.id) || []).map(
-                    (inv) => (
-                      <TouchableOpacity
-                        key={inv.id}
-                        style={[
-                          styles.inventorySelectorItem,
-                          selectedInventoryId === inv.id &&
-                            styles.inventorySelectorItemActive,
-                        ]}
-                        onPress={() => {
-                          setSelectedInventoryId(inv.id);
-                          setPortionSize(inv.portionSize.toString());
-                          setFoodType(inv.foodName);
-                        }}
-                      >
-                        <Ionicons
-                          name={
-                            selectedInventoryId === inv.id
-                              ? "radio-button-on"
-                              : "radio-button-off"
-                          }
-                          size={20}
-                          color={
-                            selectedInventoryId === inv.id ? "#FF9500" : "#999"
-                          }
-                        />
-                        <View style={styles.inventorySelectorInfo}>
-                          <Text
-                            style={[
-                              styles.inventorySelectorText,
-                              selectedInventoryId === inv.id &&
-                                styles.inventorySelectorTextActive,
-                            ]}
-                          >
-                            {inv.foodName}
-                          </Text>
-                          <Text style={styles.inventorySelectorSubtext}>
-                            {inv.portionSize}g/porție •{" "}
-                            {formatAmount(inv.remainingAmount, inv.unit)} rămase
-                          </Text>
-                        </View>
-                      </TouchableOpacity>
-                    )
-                  )}
+                  getInventoryForPet(selectedPetForSchedule).map((inv) => (
+                    <TouchableOpacity
+                      key={inv.id}
+                      style={[
+                        styles.inventorySelectorItem,
+                        selectedInventoryId === inv.id &&
+                          styles.inventorySelectorItemActive,
+                      ]}
+                      onPress={() => {
+                        setSelectedInventoryId(inv.id);
+                        setPortionSize(inv.portionSize.toString());
+                        setFoodType(inv.foodName);
+                      }}
+                    >
+                      <Ionicons
+                        name={
+                          selectedInventoryId === inv.id
+                            ? "radio-button-on"
+                            : "radio-button-off"
+                        }
+                        size={20}
+                        color={
+                          selectedInventoryId === inv.id ? "#FF9500" : "#999"
+                        }
+                      />
+                      <View style={styles.inventorySelectorInfo}>
+                        <Text
+                          style={[
+                            styles.inventorySelectorText,
+                            selectedInventoryId === inv.id &&
+                              styles.inventorySelectorTextActive,
+                          ]}
+                        >
+                          {inv.foodName}
+                        </Text>
+                        <Text style={styles.inventorySelectorSubtext}>
+                          {inv.portionSize}g/porție •{" "}
+                          {formatAmount(inv.remainingAmount, inv.unit)} rămase
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
               </View>
               {selectedPetForSchedule &&
-                (foodInventories.get(selectedPetForSchedule.id) || [])
-                  .length === 0 && (
+                getInventoryForPet(selectedPetForSchedule).length === 0 && (
                   <Text style={styles.hintText}>
                     💡 Adaugă mâncare în Inventar pentru a lega automat și a
                     scădea stocul
@@ -912,6 +1014,14 @@ export default function FeedingScreen() {
                 placeholder="Ex: uscată, umedă, conservă"
                 editable={!selectedInventoryId}
               />
+
+              <Text style={styles.helpText}>
+                🔔 Vei primi notificări la ora selectată în zilele alese
+                {selectedInventoryId &&
+                  "\n📦 Mâncarea va fi scăzută automat din inventar"}
+              </Text>
+
+              <View style={styles.modalBottomSpacer} />
             </ScrollView>
 
             <View style={styles.modalFooter}>
@@ -927,14 +1037,6 @@ export default function FeedingScreen() {
               >
                 <Text style={styles.saveButtonText}>Salvează</Text>
               </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalHelpContainer}>
-              <Text style={styles.helpTextBottom}>
-                🔔 Vei primi notificări la ora selectată în zilele alese
-                {selectedInventoryId &&
-                  "\n📦 Mâncarea va fi scăzută automat din inventar"}
-              </Text>
             </View>
           </View>
         </View>
@@ -959,10 +1061,20 @@ export default function FeedingScreen() {
             </View>
 
             <ScrollView style={styles.modalBody}>
-              <Text style={styles.label}>Animal</Text>
+              <Text style={styles.label}>Pentru</Text>
               <Text style={styles.petNameDisplay}>
-                {selectedPetForInventory?.name}
+                {selectedPetForInventory &&
+                  getInventoryKeyLabel(selectedPetForInventory)}
               </Text>
+              {selectedPetForInventory &&
+                selectedPetForInventory.type !== "other" && (
+                  <Text style={styles.hintText}>
+                    📋 Inventarul este comun pentru toți{" "}
+                    {selectedPetForInventory.type === "dog"
+                      ? "câinii"
+                      : "pisicile"}
+                  </Text>
+                )}
 
               <Text style={styles.label}>Numele Mâncării</Text>
               <TextInput
@@ -1039,6 +1151,12 @@ export default function FeedingScreen() {
               <Text style={styles.hintText}>
                 Vei primi o notificare când mâncarea scade sub acest prag
               </Text>
+
+              <Text style={styles.helpText}>
+                📦 Confirmă hrănirea pentru a scădea automat din inventar
+              </Text>
+
+              <View style={styles.modalBottomSpacer} />
             </ScrollView>
 
             <View style={styles.modalFooter}>
@@ -1054,12 +1172,6 @@ export default function FeedingScreen() {
               >
                 <Text style={styles.saveButtonText}>Salvează</Text>
               </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalHelpContainer}>
-              <Text style={styles.helpTextBottom}>
-                📦 Confirmă hrănirea pentru a scădea automat din inventar
-              </Text>
             </View>
           </View>
         </View>
@@ -1495,20 +1607,8 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#fff",
   },
-  modalHelpContainer: {
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    paddingTop: 0,
-  },
-  helpTextBottom: {
-    fontSize: 14,
-    color: "#666",
-    padding: 12,
-    backgroundColor: "#FFF9E6",
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#FFE082",
-    textAlign: "center",
+  modalBottomSpacer: {
+    height: 30,
   },
   inventorySelector: {
     gap: 8,
