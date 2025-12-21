@@ -334,9 +334,18 @@ export default function FeedingScreen() {
     setSelectedPetForInventory(pet);
     setEditingInventory(inventory);
     setFoodName(inventory.foodName);
-    setTotalAmount(inventory.totalAmount.toString());
+    // Reconvertim din grame înapoi în unitatea originală pentru afișare
+    const displayTotal =
+      inventory.unit === "kg"
+        ? (inventory.totalAmount / 1000).toString()
+        : inventory.totalAmount.toString();
+    const displayThreshold =
+      inventory.unit === "kg"
+        ? (inventory.lowStockThreshold / 1000).toString()
+        : inventory.lowStockThreshold.toString();
+    setTotalAmount(displayTotal);
     setInventoryPortionSize(inventory.portionSize.toString());
-    setLowStockThreshold(inventory.lowStockThreshold.toString());
+    setLowStockThreshold(displayThreshold);
     setSelectedUnit(inventory.unit);
     setInventoryModalVisible(true);
   };
@@ -479,11 +488,13 @@ export default function FeedingScreen() {
             };
             await saveFoodInventory(updatedInventory);
             await loadData();
+            const displayAmount =
+              inventory.unit === "kg"
+                ? (inventory.totalAmount / 1000).toFixed(1)
+                : inventory.totalAmount.toString();
             Alert.alert(
               "✅ Stoc reumplut!",
-              `"${inventory.foodName}" a fost reumplut la ${
-                inventory.totalAmount
-              }${inventory.unit === "kg" ? "kg" : "g"}.`
+              `"${inventory.foodName}" a fost reumplut la ${displayAmount}${inventory.unit}.`
             );
           },
         },
