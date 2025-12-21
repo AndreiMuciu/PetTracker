@@ -63,6 +63,9 @@ export default function FeedingScreen() {
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [portionSize, setPortionSize] = useState("100");
   const [foodType, setFoodType] = useState("");
+  const [selectedInventoryId, setSelectedInventoryId] = useState<string | null>(
+    null
+  );
 
   // Inventory state
   const [foodInventories, setFoodInventories] = useState<
@@ -114,6 +117,7 @@ export default function FeedingScreen() {
     setSelectedDays([1, 2, 3, 4, 5, 6, 0]); // All days by default
     setPortionSize("100");
     setFoodType("");
+    setSelectedInventoryId(null);
     setScheduleModalVisible(true);
   };
 
@@ -128,6 +132,7 @@ export default function FeedingScreen() {
     setSelectedDays(schedule.daysOfWeek);
     setPortionSize(schedule.portionSize.toString());
     setFoodType(schedule.foodType || "");
+    setSelectedInventoryId(schedule.inventoryId || null);
     setScheduleModalVisible(true);
   };
 
@@ -164,6 +169,7 @@ export default function FeedingScreen() {
         daysOfWeek: selectedDays,
         portionSize: parsedPortion,
         foodType: foodType || undefined,
+        inventoryId: selectedInventoryId || undefined,
       };
 
       const notificationId = await scheduleFeedingNotification(
@@ -182,6 +188,7 @@ export default function FeedingScreen() {
         enabled: true,
         portionSize: parsedPortion,
         foodType: foodType || undefined,
+        inventoryId: selectedInventoryId || undefined,
       };
 
       const notificationId = await scheduleFeedingNotification(
@@ -445,44 +452,62 @@ export default function FeedingScreen() {
     return Math.floor(inventory.remainingAmount / inventory.portionSize);
   };
 
+  const getLinkedInventory = (
+    schedule: FeedingSchedule
+  ): FoodInventory | undefined => {
+    if (!schedule.inventoryId) return undefined;
+    const petInventories = foodInventories.get(schedule.petId) || [];
+    return petInventories.find((inv) => inv.id === schedule.inventoryId);
+  };
+
   // ============ Render Functions ============
 
-  const renderScheduleItem = (pet: Pet, schedule: FeedingSchedule) => (
-    <View key={schedule.id} style={styles.scheduleCard}>
-      <View style={styles.scheduleHeader}>
-        <View style={styles.scheduleInfo}>
-          <Text style={styles.scheduleTime}>{schedule.time}</Text>
-          <Text style={styles.scheduleDays}>
-            {getDaysLabel(schedule.daysOfWeek)}
-          </Text>
-          <Text style={styles.portionText}>
-            🍽️ {schedule.portionSize}g{" "}
-            {schedule.foodType && `- ${schedule.foodType}`}
-          </Text>
-        </View>
-        <View style={styles.scheduleActions}>
-          <Switch
-            value={schedule.enabled}
-            onValueChange={() => toggleSchedule(pet, schedule)}
-            trackColor={{ false: "#ccc", true: "#FF9500" }}
-            thumbColor="#fff"
-          />
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => handleEditSchedule(pet, schedule)}
-          >
-            <Ionicons name="pencil" size={20} color="#007AFF" />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => handleDeleteSchedule(schedule)}
-          >
-            <Ionicons name="trash-outline" size={20} color="#ff3b30" />
-          </TouchableOpacity>
+  const renderScheduleItem = (pet: Pet, schedule: FeedingSchedule) => {
+    const linkedInventory = getLinkedInventory(schedule);
+
+    return (
+      <View key={schedule.id} style={styles.scheduleCard}>
+        <View style={styles.scheduleHeader}>
+          <View style={styles.scheduleInfo}>
+            <Text style={styles.scheduleTime}>{schedule.time}</Text>
+            <Text style={styles.scheduleDays}>
+              {getDaysLabel(schedule.daysOfWeek)}
+            </Text>
+            <Text style={styles.portionText}>
+              🍽️ {schedule.portionSize}g{" "}
+              {schedule.foodType && `- ${schedule.foodType}`}
+            </Text>
+            {linkedInventory && (
+              <Text style={styles.linkedInventoryText}>
+                📦 {linkedInventory.foodName} (
+                {getPortionsRemaining(linkedInventory)} porții)
+              </Text>
+            )}
+          </View>
+          <View style={styles.scheduleActions}>
+            <Switch
+              value={schedule.enabled}
+              onValueChange={() => toggleSchedule(pet, schedule)}
+              trackColor={{ false: "#ccc", true: "#FF9500" }}
+              thumbColor="#fff"
+            />
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => handleEditSchedule(pet, schedule)}
+            >
+              <Ionicons name="pencil" size={20} color="#007AFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => handleDeleteSchedule(schedule)}
+            >
+              <Ionicons name="trash-outline" size={20} color="#ff3b30" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   const renderInventoryItem = (pet: Pet, inventory: FoodInventory) => {
     const percentage = getStockPercentage(inventory);
@@ -772,26 +797,121 @@ export default function FeedingScreen() {
                 ))}
               </View>
 
+              <Text style={styles.label}>Leagă de inventar (opțional)</Text>
+              <View style={styles.inventorySelector}>
+                <TouchableOpacity
+                  style={[
+                    styles.inventorySelectorItem,
+                    selectedInventoryId === null &&
+                      styles.inventorySelectorItemActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedInventoryId(null);
+                  }}
+                >
+                  <Ionicons
+                    name={
+                      selectedInventoryId === null
+                        ? "radio-button-on"
+                        : "radio-button-off"
+                    }
+                    size={20}
+                    color={selectedInventoryId === null ? "#FF9500" : "#999"}
+                  />
+                  <Text
+                    style={[
+                      styles.inventorySelectorText,
+                      selectedInventoryId === null &&
+                        styles.inventorySelectorTextActive,
+                    ]}
+                  >
+                    Fără legătură
+                  </Text>
+                </TouchableOpacity>
+                {selectedPetForSchedule &&
+                  (foodInventories.get(selectedPetForSchedule.id) || []).map(
+                    (inv) => (
+                      <TouchableOpacity
+                        key={inv.id}
+                        style={[
+                          styles.inventorySelectorItem,
+                          selectedInventoryId === inv.id &&
+                            styles.inventorySelectorItemActive,
+                        ]}
+                        onPress={() => {
+                          setSelectedInventoryId(inv.id);
+                          setPortionSize(inv.portionSize.toString());
+                          setFoodType(inv.foodName);
+                        }}
+                      >
+                        <Ionicons
+                          name={
+                            selectedInventoryId === inv.id
+                              ? "radio-button-on"
+                              : "radio-button-off"
+                          }
+                          size={20}
+                          color={
+                            selectedInventoryId === inv.id ? "#FF9500" : "#999"
+                          }
+                        />
+                        <View style={styles.inventorySelectorInfo}>
+                          <Text
+                            style={[
+                              styles.inventorySelectorText,
+                              selectedInventoryId === inv.id &&
+                                styles.inventorySelectorTextActive,
+                            ]}
+                          >
+                            {inv.foodName}
+                          </Text>
+                          <Text style={styles.inventorySelectorSubtext}>
+                            {inv.portionSize}g/porție •{" "}
+                            {formatAmount(inv.remainingAmount, inv.unit)} rămase
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    )
+                  )}
+              </View>
+              {selectedPetForSchedule &&
+                (foodInventories.get(selectedPetForSchedule.id) || [])
+                  .length === 0 && (
+                  <Text style={styles.hintText}>
+                    💡 Adaugă mâncare în Inventar pentru a lega automat și a
+                    scădea stocul
+                  </Text>
+                )}
+
               <Text style={styles.label}>Mărime Porție (grame)</Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  selectedInventoryId && styles.inputDisabled,
+                ]}
                 value={portionSize}
                 onChangeText={setPortionSize}
                 keyboardType="numeric"
                 placeholder="100"
+                editable={!selectedInventoryId}
               />
+              {selectedInventoryId && (
+                <Text style={styles.hintText}>
+                  Porția este preluată din inventar
+                </Text>
+              )}
 
               <Text style={styles.label}>Tip Mâncare (opțional)</Text>
               <TextInput
-                style={styles.input}
+                style={[
+                  styles.input,
+                  selectedInventoryId && styles.inputDisabled,
+                ]}
                 value={foodType}
                 onChangeText={setFoodType}
                 placeholder="Ex: uscată, umedă, conservă"
+                editable={!selectedInventoryId}
               />
-
-              <Text style={styles.helpText}>
-                🔔 Vei primi notificări la ora selectată în zilele alese
-              </Text>
             </ScrollView>
 
             <View style={styles.modalFooter}>
@@ -807,6 +927,14 @@ export default function FeedingScreen() {
               >
                 <Text style={styles.saveButtonText}>Salvează</Text>
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalHelpContainer}>
+              <Text style={styles.helpTextBottom}>
+                🔔 Vei primi notificări la ora selectată în zilele alese
+                {selectedInventoryId &&
+                  "\n📦 Mâncarea va fi scăzută automat din inventar"}
+              </Text>
             </View>
           </View>
         </View>
@@ -911,10 +1039,6 @@ export default function FeedingScreen() {
               <Text style={styles.hintText}>
                 Vei primi o notificare când mâncarea scade sub acest prag
               </Text>
-
-              <Text style={styles.helpText}>
-                📦 Confirmă hrănirea pentru a scădea automat din inventar
-              </Text>
             </ScrollView>
 
             <View style={styles.modalFooter}>
@@ -930,6 +1054,12 @@ export default function FeedingScreen() {
               >
                 <Text style={styles.saveButtonText}>Salvează</Text>
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalHelpContainer}>
+              <Text style={styles.helpTextBottom}>
+                📦 Confirmă hrănirea pentru a scădea automat din inventar
+              </Text>
             </View>
           </View>
         </View>
@@ -1083,6 +1213,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#FF9500",
     fontWeight: "500",
+  },
+  linkedInventoryText: {
+    fontSize: 12,
+    color: "#007AFF",
+    marginTop: 4,
+    fontStyle: "italic",
   },
   scheduleActions: {
     flexDirection: "row",
@@ -1358,5 +1494,57 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#fff",
+  },
+  modalHelpContainer: {
+    paddingHorizontal: 20,
+    paddingBottom: 20,
+    paddingTop: 0,
+  },
+  helpTextBottom: {
+    fontSize: 14,
+    color: "#666",
+    padding: 12,
+    backgroundColor: "#FFF9E6",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#FFE082",
+    textAlign: "center",
+  },
+  inventorySelector: {
+    gap: 8,
+  },
+  inventorySelectorItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "#f5f5f5",
+    borderRadius: 8,
+    gap: 12,
+    borderWidth: 2,
+    borderColor: "transparent",
+  },
+  inventorySelectorItemActive: {
+    backgroundColor: "#FFF3E6",
+    borderColor: "#FF9500",
+  },
+  inventorySelectorInfo: {
+    flex: 1,
+  },
+  inventorySelectorText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#666",
+  },
+  inventorySelectorTextActive: {
+    color: "#FF9500",
+  },
+  inventorySelectorSubtext: {
+    fontSize: 12,
+    color: "#999",
+    marginTop: 2,
+  },
+  inputDisabled: {
+    backgroundColor: "#e8e8e8",
+    color: "#999",
   },
 });

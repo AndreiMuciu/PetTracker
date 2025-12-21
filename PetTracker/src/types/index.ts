@@ -58,6 +58,7 @@ export interface FeedingSchedule {
   enabled: boolean;
   portionSize: number; // Grame per porție
   foodType?: string; // Tipul mâncării (ex: "uscată", "umedă")
+  inventoryId?: string; // ID-ul inventarului legat (pentru scădere automată)
   notificationId?: string;
 }
 
