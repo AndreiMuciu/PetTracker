@@ -6,6 +6,9 @@ import {
   FeedingSchedule,
   FoodInventory,
   FeedingLog,
+  Vaccine,
+  Treatment,
+  VetVisit,
 } from "../types";
 
 const PETS_KEY = "@pets";
@@ -14,6 +17,7 @@ const WALKS_KEY = "@walks";
 const FEEDING_SCHEDULES_KEY = "@feeding_schedules";
 const FOOD_INVENTORY_KEY = "@food_inventory";
 const FEEDING_LOGS_KEY = "@feeding_logs";
+const MEDICAL_DATA_KEY = "@medical_data";
 
 // Pet Storage
 export const getPets = async (): Promise<Pet[]> => {
@@ -46,9 +50,45 @@ export const savePet = async (pet: Pet): Promise<void> => {
 
 export const deletePet = async (petId: string): Promise<void> => {
   try {
+    // 1. Șterge animalul
     const pets = await getPets();
     const filtered = pets.filter((p) => p.id !== petId);
     await AsyncStorage.setItem(PETS_KEY, JSON.stringify(filtered));
+
+    // 2. Șterge toate plimbările animalului
+    const walks = await getWalks();
+    const filteredWalks = walks.filter((w) => w.petId !== petId);
+    await AsyncStorage.setItem(WALKS_KEY, JSON.stringify(filteredWalks));
+
+    // 3. Șterge toate programările de hrănire ale animalului
+    const feedingSchedules = await getFeedingSchedules();
+    const filteredSchedules = feedingSchedules.filter((s) => s.petId !== petId);
+    await AsyncStorage.setItem(
+      FEEDING_SCHEDULES_KEY,
+      JSON.stringify(filteredSchedules)
+    );
+
+    // 4. Șterge inventarul de mâncare al animalului
+    const inventory = await getFoodInventory();
+    const filteredInventory = inventory.filter((i) => i.petId !== petId);
+    await AsyncStorage.setItem(
+      FOOD_INVENTORY_KEY,
+      JSON.stringify(filteredInventory)
+    );
+
+    // 5. Șterge logurile de hrănire ale animalului
+    const feedingLogs = await getFeedingLogs();
+    const filteredLogs = feedingLogs.filter((l) => l.petId !== petId);
+    await AsyncStorage.setItem(FEEDING_LOGS_KEY, JSON.stringify(filteredLogs));
+
+    // 6. Șterge datele medicale ale animalului (vaccinuri, tratamente, vizite)
+    const medicalData = await loadMedicalData();
+    const updatedMedicalData = {
+      vaccines: medicalData.vaccines.filter((v) => v.petId !== petId),
+      treatments: medicalData.treatments.filter((t) => t.petId !== petId),
+      vetVisits: medicalData.vetVisits.filter((v) => v.petId !== petId),
+    };
+    await saveMedicalData(updatedMedicalData);
   } catch (error) {
     console.error("Error deleting pet:", error);
     throw error;
@@ -374,3 +414,88 @@ export const deleteFeedingLogsByInventory = async (
     throw error;
   }
 };
+
+// ============ Medical Data Storage ============
+
+export interface MedicalData {
+  vaccines: Vaccine[];
+  treatments: Treatment[];
+  vetVisits: VetVisit[];
+}
+
+export const loadMedicalData = async (): Promise<MedicalData> => {
+  try {
+    const data = await AsyncStorage.getItem(MEDICAL_DATA_KEY);
+    if (data) {
+      const parsed = JSON.parse(data);
+      // Convertim string-urile înapoi în Date objects
+      return {
+        vaccines: parsed.vaccines.map((v: any) => ({
+          ...v,
+          administeredDate: new Date(v.administeredDate),
+          nextDueDate: v.nextDueDate ? new Date(v.nextDueDate) : undefined,
+        })),
+        treatments: parsed.treatments.map((t: any) => ({
+          ...t,
+          startDate: new Date(t.startDate),
+          endDate: t.endDate ? new Date(t.endDate) : undefined,
+        })),
+        vetVisits: parsed.vetVisits.map((v: any) => ({
+          ...v,
+          date: new Date(v.date),
+          nextVisitDate: v.nextVisitDate
+            ? new Date(v.nextVisitDate)
+            : undefined,
+        })),
+      };
+    }
+    return { vaccines: [], treatments: [], vetVisits: [] };
+  } catch (error) {
+    console.error("Error loading medical data:", error);
+    return { vaccines: [], treatments: [], vetVisits: [] };
+  }
+};
+
+export const saveMedicalData = async (data: MedicalData): Promise<void> => {
+  try {
+    await AsyncStorage.setItem(MEDICAL_DATA_KEY, JSON.stringify(data));
+  } catch (error) {
+    console.error("Error saving medical data:", error);
+    throw error;
+  }
+};
+
+export const getVaccinesByPet = async (petId: string): Promise<Vaccine[]> => {
+  try {
+    const data = await loadMedicalData();
+    return data.vaccines.filter((v) => v.petId === petId);
+  } catch (error) {
+    console.error("Error getting vaccines by pet:", error);
+    return [];
+  }
+};
+
+export const getTreatmentsByPet = async (
+  petId: string
+): Promise<Treatment[]> => {
+  try {
+    const data = await loadMedicalData();
+    return data.treatments.filter((t) => t.petId === petId);
+  } catch (error) {
+    console.error("Error getting treatments by pet:", error);
+    return [];
+  }
+};
+
+export const getVetVisitsByPet = async (petId: string): Promise<VetVisit[]> => {
+  try {
+    const data = await loadMedicalData();
+    return data.vetVisits.filter((v) => v.petId === petId);
+  } catch (error) {
+    console.error("Error getting vet visits by pet:", error);
+    return [];
+  }
+};
+
+// Alias pentru compatibilitate
+export const loadPets = getPets;

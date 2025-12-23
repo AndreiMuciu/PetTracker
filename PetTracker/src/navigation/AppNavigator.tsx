@@ -8,6 +8,7 @@ import MapScreen from "../screens/MapScreen";
 import ScheduleScreen from "../screens/ScheduleScreen";
 import HistoryScreen from "../screens/HistoryScreen";
 import FeedingScreen from "../screens/FeedingScreen";
+import MedicalScreen from "../screens/MedicalScreen";
 
 const Tab = createBottomTabNavigator();
 
@@ -27,6 +28,8 @@ export default function AppNavigator() {
               iconName = focused ? "notifications" : "notifications-outline";
             } else if (route.name === "Feeding") {
               iconName = focused ? "restaurant" : "restaurant-outline";
+            } else if (route.name === "Medical") {
+              iconName = focused ? "medical" : "medical-outline";
             } else if (route.name === "History") {
               iconName = focused ? "time" : "time-outline";
             }
@@ -64,6 +67,11 @@ export default function AppNavigator() {
           name="Feeding"
           component={FeedingScreen}
           options={{ tabBarLabel: "Hrănire" }}
+        />
+        <Tab.Screen
+          name="Medical"
+          component={MedicalScreen}
+          options={{ tabBarLabel: "Medical" }}
         />
         <Tab.Screen
           name="Schedule"

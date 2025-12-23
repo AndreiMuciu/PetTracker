@@ -85,3 +85,69 @@ export interface FeedingLog {
   fedAt: Date;
   notes?: string;
 }
+
+// Medical - Secțiune Medicală
+
+// Vaccine - Vaccinuri
+export interface Vaccine {
+  id: string;
+  petId: string;
+  name: string; // Ex: "Rabies", "DHPP", "Antirabic"
+  administeredDate: Date;
+  nextDueDate?: Date; // Data următoarei doze
+  veterinarian?: string; // Numele veterinarului
+  clinic?: string; // Clinica veterinară
+  batchNumber?: string; // Numărul lotului
+  notes?: string;
+  completed: boolean; // Dacă este complet sau necesită rapel
+}
+
+// Treatment - Tratamente
+export interface Treatment {
+  id: string;
+  petId: string;
+  name: string; // Ex: "Antibiotic", "Antiparazitar"
+  type: "medication" | "supplement" | "therapy" | "other";
+  startDate: Date;
+  endDate?: Date;
+  frequency?: string; // Ex: "2x pe zi", "o dată pe săptămână"
+  dosage?: string; // Ex: "5mg", "1 tabletă"
+  prescribedBy?: string; // Veterinarul care a prescris
+  notes?: string;
+  completed: boolean;
+  remindersEnabled: boolean;
+}
+
+// Vet Visit - Vizite la veterinar
+export interface VetVisit {
+  id: string;
+  petId: string;
+  date: Date;
+  reason: string; // Motivul vizitei
+  diagnosis?: string;
+  treatment?: string;
+  veterinarian?: string;
+  clinic?: string;
+  cost?: number;
+  nextVisitDate?: Date;
+  notes?: string;
+  documents?: string[]; // URIs pentru documentele scanate
+}
+
+// Health Recommendation - Recomandări de sănătate
+export interface HealthRecommendation {
+  id: string;
+  title: string;
+  description: string;
+  category:
+    | "vaccination"
+    | "deworming"
+    | "dental"
+    | "grooming"
+    | "nutrition"
+    | "exercise"
+    | "general";
+  petType?: "dog" | "cat" | "all"; // Pentru ce tip de animal este recomandarea
+  frequency?: string; // Ex: "La fiecare 6 luni"
+  priority: "high" | "medium" | "low";
+}
