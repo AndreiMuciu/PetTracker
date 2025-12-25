@@ -23,6 +23,10 @@ import {
   saveMedicalData,
   loadMedicalData,
 } from "../services/storage";
+import {
+  scheduleVaccineNotifications,
+  cancelNotification,
+} from "../services/notifications";
 
 interface MedicalData {
   vaccines: Vaccine[];
@@ -153,6 +157,20 @@ export default function MedicalScreen() {
         return;
       }
 
+      // Programează notificări dacă există următoarea doză
+      let notificationId: string | undefined = undefined;
+      if (nextDueDate && nextDueDate > new Date()) {
+        const notifId = await scheduleVaccineNotifications(
+          selectedPet.name,
+          vaccineName,
+          nextDueDate
+        );
+        if (notifId) {
+          notificationId = notifId;
+          console.log(`✅ Notificări programate pentru vaccin ${vaccineName}`);
+        }
+      }
+
       const newVaccine: Vaccine = {
         id: Date.now().toString(),
         petId: selectedPet.id,
@@ -164,6 +182,7 @@ export default function MedicalScreen() {
         batchNumber: batchNumber || undefined,
         notes: notes || undefined,
         completed: !nextDueDate,
+        notificationId: notificationId,
       };
 
       newData.vaccines = [...medicalData.vaccines, newVaccine];
@@ -229,6 +248,14 @@ export default function MedicalScreen() {
         onPress: async () => {
           let newData = { ...medicalData };
           if (type === "vaccine") {
+            // Anulează notificările pentru vaccin dacă există
+            const vaccine = medicalData.vaccines.find((v) => v.id === id);
+            if (vaccine?.notificationId) {
+              await cancelNotification(vaccine.notificationId);
+              console.log(
+                `🔕 Notificări anulate pentru vaccin ${vaccine.name}`
+              );
+            }
             newData.vaccines = medicalData.vaccines.filter((v) => v.id !== id);
           } else if (type === "treatment") {
             newData.treatments = medicalData.treatments.filter(
@@ -563,18 +590,21 @@ export default function MedicalScreen() {
       return (
         <>
           <Text style={styles.modalTitle}>Adaugă vaccin</Text>
+
+          <Text style={styles.label}>Nume vaccin *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Numele vaccinului *"
+            placeholder="Ex: Antirabic, DHPP, Panleukopenie"
             value={vaccineName}
             onChangeText={setVaccineName}
           />
 
+          <Text style={styles.label}>Data administrării</Text>
           <TouchableOpacity
             style={styles.dateButton}
             onPress={() => setShowDatePicker(true)}
           >
-            <Text>Data administrării: {formatDate(vaccineDate)}</Text>
+            <Text>{formatDate(vaccineDate)}</Text>
           </TouchableOpacity>
 
           {showDatePicker && (
@@ -589,14 +619,15 @@ export default function MedicalScreen() {
             />
           )}
 
+          <Text style={styles.label}>Următoarea doză (opțional) 💉</Text>
           <TouchableOpacity
             style={styles.dateButton}
             onPress={() => setShowNextDuePicker(true)}
           >
             <Text>
               {nextDueDate
-                ? `Următoarea doză: ${formatDate(nextDueDate)}`
-                : "Setează următoarea doză (opțional)"}
+                ? formatDate(nextDueDate)
+                : "Selectează data următoarei doze"}
             </Text>
           </TouchableOpacity>
 
@@ -612,30 +643,34 @@ export default function MedicalScreen() {
             />
           )}
 
+          <Text style={styles.label}>Veterinar</Text>
           <TextInput
             style={styles.input}
-            placeholder="Veterinar"
+            placeholder="Numele veterinarului"
             value={veterinarian}
             onChangeText={setVeterinarian}
           />
 
+          <Text style={styles.label}>Clinică veterinară</Text>
           <TextInput
             style={styles.input}
-            placeholder="Clinică"
+            placeholder="Numele clinicii"
             value={clinic}
             onChangeText={setClinic}
           />
 
+          <Text style={styles.label}>Număr lot vaccin</Text>
           <TextInput
             style={styles.input}
-            placeholder="Număr lot"
+            placeholder="Numărul lotului (de pe flacon)"
             value={batchNumber}
             onChangeText={setBatchNumber}
           />
 
+          <Text style={styles.label}>Notițe suplimentare</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="Notițe"
+            placeholder="Reacții adverse, observații, etc."
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -647,13 +682,16 @@ export default function MedicalScreen() {
       return (
         <>
           <Text style={styles.modalTitle}>Adaugă tratament</Text>
+
+          <Text style={styles.label}>Nume tratament *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Numele tratamentului *"
+            placeholder="Ex: Antibiotic, Antiparazitar, Vitamina"
             value={treatmentName}
             onChangeText={setTreatmentName}
           />
 
+          <Text style={styles.label}>Tip tratament</Text>
           <View style={styles.typeSelector}>
             {(["medication", "supplement", "therapy", "other"] as const).map(
               (type) => (
@@ -684,11 +722,12 @@ export default function MedicalScreen() {
             )}
           </View>
 
+          <Text style={styles.label}>Data început tratament</Text>
           <TouchableOpacity
             style={styles.dateButton}
             onPress={() => setShowStartPicker(true)}
           >
-            <Text>Data început: {formatDate(startDate)}</Text>
+            <Text>{formatDate(startDate)}</Text>
           </TouchableOpacity>
 
           {showStartPicker && (
@@ -703,14 +742,15 @@ export default function MedicalScreen() {
             />
           )}
 
+          <Text style={styles.label}>Data sfârșit tratament (opțional)</Text>
           <TouchableOpacity
             style={styles.dateButton}
             onPress={() => setShowEndPicker(true)}
           >
             <Text>
               {endDate
-                ? `Data sfârșit: ${formatDate(endDate)}`
-                : "Setează data sfârșit (opțional)"}
+                ? formatDate(endDate)
+                : "Selectează când se termină tratamentul"}
             </Text>
           </TouchableOpacity>
 
@@ -726,30 +766,34 @@ export default function MedicalScreen() {
             />
           )}
 
+          <Text style={styles.label}>Frecvență administrare</Text>
           <TextInput
             style={styles.input}
-            placeholder="Frecvență (ex: 2x pe zi)"
+            placeholder="Ex: 2x pe zi, o dată pe săptămână"
             value={frequency}
             onChangeText={setFrequency}
           />
 
+          <Text style={styles.label}>Dozaj</Text>
           <TextInput
             style={styles.input}
-            placeholder="Dozaj (ex: 5mg)"
+            placeholder="Ex: 5mg, 1 tabletă, 2ml"
             value={dosage}
             onChangeText={setDosage}
           />
 
+          <Text style={styles.label}>Prescris de</Text>
           <TextInput
             style={styles.input}
-            placeholder="Prescris de (veterinar)"
+            placeholder="Numele veterinarului care a prescris"
             value={veterinarian}
             onChangeText={setVeterinarian}
           />
 
+          <Text style={styles.label}>Notițe suplimentare</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="Notițe"
+            placeholder="Instrucțiuni speciale, efecte secundare, etc."
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -762,11 +806,12 @@ export default function MedicalScreen() {
         <>
           <Text style={styles.modalTitle}>Adaugă vizită veterinar</Text>
 
+          <Text style={styles.label}>Data vizitei</Text>
           <TouchableOpacity
             style={styles.dateButton}
             onPress={() => setShowVisitPicker(true)}
           >
-            <Text>Data vizitei: {formatDate(visitDate)}</Text>
+            <Text>{formatDate(visitDate)}</Text>
           </TouchableOpacity>
 
           {showVisitPicker && (
@@ -781,57 +826,66 @@ export default function MedicalScreen() {
             />
           )}
 
+          <Text style={styles.label}>Motivul vizitei *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Motivul vizitei *"
+            placeholder="Ex: Control de rutină, vaccinare, probleme"
             value={reason}
             onChangeText={setReason}
           />
 
+          <Text style={styles.label}>Diagnostic</Text>
           <TextInput
             style={styles.input}
-            placeholder="Diagnostic"
+            placeholder="Ce a constatat veterinarul"
             value={diagnosis}
             onChangeText={setDiagnosis}
           />
 
+          <Text style={styles.label}>Tratament prescris</Text>
           <TextInput
             style={styles.input}
-            placeholder="Tratament prescris"
+            placeholder="Medicamentele sau procedurile prescrise"
             value={treatment}
             onChangeText={setTreatment}
           />
 
+          <Text style={styles.label}>Veterinar</Text>
           <TextInput
             style={styles.input}
-            placeholder="Veterinar"
+            placeholder="Numele veterinarului"
             value={veterinarian}
             onChangeText={setVeterinarian}
           />
 
+          <Text style={styles.label}>Clinică veterinară</Text>
           <TextInput
             style={styles.input}
-            placeholder="Clinică"
+            placeholder="Numele clinicii"
             value={clinic}
             onChangeText={setClinic}
           />
 
+          <Text style={styles.label}>Cost (RON)</Text>
           <TextInput
             style={styles.input}
-            placeholder="Cost (RON)"
+            placeholder="Costul total al vizitei"
             value={cost}
             onChangeText={setCost}
             keyboardType="numeric"
           />
 
+          <Text style={styles.label}>
+            Următoarea vizită programată (opțional)
+          </Text>
           <TouchableOpacity
             style={styles.dateButton}
             onPress={() => setShowNextVisitPicker(true)}
           >
             <Text>
               {nextVisitDate
-                ? `Următoarea vizită: ${formatDate(nextVisitDate)}`
-                : "Setează următoarea vizită (opțional)"}
+                ? formatDate(nextVisitDate)
+                : "Selectează data următoarei vizite"}
             </Text>
           </TouchableOpacity>
 
@@ -847,9 +901,10 @@ export default function MedicalScreen() {
             />
           )}
 
+          <Text style={styles.label}>Notițe suplimentare</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
-            placeholder="Notițe"
+            placeholder="Observații, recomandări, alte detalii"
             value={notes}
             onChangeText={setNotes}
             multiline
@@ -1193,6 +1248,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginBottom: 20,
     textAlign: "center",
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 5,
+    marginTop: 5,
   },
   input: {
     borderWidth: 1,

@@ -277,3 +277,78 @@ export const sendOutOfStockNotification = async (
 
   await sendImmediateNotification(title, body);
 };
+
+// ============ Medical Notifications ============
+
+// Programează notificări pentru următoarea doză de vaccin
+// - O notificare cu o zi înainte
+// - O notificare cu o oră înainte
+export const scheduleVaccineNotifications = async (
+  petName: string,
+  vaccineName: string,
+  nextDueDate: Date
+): Promise<string | null> => {
+  // În Expo Go, skip notification scheduling
+  if (isExpoGo) {
+    return `expo-go-vaccine-${Date.now()}`;
+  }
+
+  try {
+    const notificationIds: string[] = [];
+
+    // Creează canal pentru notificări medicale pe Android
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("medical-reminders", {
+        name: "Medical Reminders",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#FF0000",
+      });
+    }
+
+    // Notificare cu o zi înainte (24 ore)
+    const oneDayBefore = new Date(nextDueDate.getTime() - 24 * 60 * 60 * 1000);
+    if (oneDayBefore > new Date()) {
+      const notificationId1 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `💉 Vaccin programat mâine!`,
+          body: `Mâine trebuie să administrezi "${vaccineName}" pentru ${petName}. Nu uita!`,
+          data: { type: "vaccine", petName, vaccineName },
+          sound: true,
+          priority: "high",
+          ...(Platform.OS === "android" && { channelId: "medical-reminders" }),
+        },
+        trigger: oneDayBefore,
+      });
+      notificationIds.push(notificationId1);
+      console.log(
+        `✅ Notificare vaccin programată cu o zi înainte pentru ${petName}`
+      );
+    }
+
+    // Notificare cu o oră înainte
+    const oneHourBefore = new Date(nextDueDate.getTime() - 60 * 60 * 1000);
+    if (oneHourBefore > new Date()) {
+      const notificationId2 = await Notifications.scheduleNotificationAsync({
+        content: {
+          title: `💉 Vaccin în 1 oră!`,
+          body: `Peste o oră trebuie să administrezi "${vaccineName}" pentru ${petName}!`,
+          data: { type: "vaccine", petName, vaccineName },
+          sound: true,
+          priority: "high",
+          ...(Platform.OS === "android" && { channelId: "medical-reminders" }),
+        },
+        trigger: oneHourBefore,
+      });
+      notificationIds.push(notificationId2);
+      console.log(
+        `✅ Notificare vaccin programată cu o oră înainte pentru ${petName}`
+      );
+    }
+
+    return notificationIds.length > 0 ? notificationIds.join(",") : null;
+  } catch (error) {
+    console.error("Eroare la programarea notificărilor pentru vaccin:", error);
+    return `expo-go-vaccine-${Date.now()}`;
+  }
+};

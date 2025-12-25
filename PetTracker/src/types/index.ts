@@ -100,6 +100,7 @@ export interface Vaccine {
   batchNumber?: string; // Numărul lotului
   notes?: string;
   completed: boolean; // Dacă este complet sau necesită rapel
+  notificationId?: string; // ID-urile notificărilor programate
 }
 
 // Treatment - Tratamente
